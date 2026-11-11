@@ -798,14 +798,12 @@ class SlurmTest(ToilTest):
         with self.assertRaises(ValueError):
             self.worker.prepareSbatch(1, 100, 5, 0, "job5", None, fpga)
 
-        # And so would an accelerator kind without arguments
         self.worker.boss.config.slurm_args = ""
         with self.assertRaises(ValueError):
             self.worker.prepareSbatch(
                 1, 100, 5, 0, "job5", None, [{"kind": "qpu", "count": 1}]
             )
 
-        # Or two kinds in different partitions
         self.worker.boss.config.slurm_accelerator_args = [
             ("fpga", ["--partition=fpgas"]), ("qpu", ["-p", "qpus"])
         ]
@@ -824,17 +822,13 @@ class SlurmTest(ToilTest):
         ]
         qpu = [{"kind": "qpu", "count": 1}]
 
-        # A site's own options for an accelerator reach its jobs' sbatch, and
-        # without a partition among them the job keeps the default one
         command = self.worker.prepareSbatch(1, 100, 5, 0, "job5", None, qpu)
         assert "--qpu=sim" in command and "--comment=quantum" in command
         assert "--partition=foobar" in command
 
-        # Jobs without that accelerator don't get them
         command = self.worker.prepareSbatch(1, 100, 5, 0, "job5", None, None)
         assert "--qpu=sim" not in command
 
-        # Options Toil sets itself can't be given for an accelerator
         self.worker.boss.config.slurm_accelerator_args = [("qpu", ["--mem=10G"])]
         with self.assertRaises(ValueError):
             self.worker.prepareSbatch(1, 100, 5, 0, "job5", None, qpu)
@@ -849,7 +843,6 @@ class SlurmTest(ToilTest):
             )
         ]
 
-        # Each job's accelerator properties fill the arguments for its kind
         small = [{"kind": "qpu", "count": 1, "properties": {"backend": "sim", "qubits": "3"}}]
         large = [{"kind": "qpu", "count": 1, "properties": {"backend": "sim", "qubits": "30"}}]
         command = self.worker.prepareSbatch(1, 100, 5, 0, "job5", None, small)
@@ -858,7 +851,6 @@ class SlurmTest(ToilTest):
         command = self.worker.prepareSbatch(1, 100, 5, 0, "job6", None, large)
         assert "--max-qubits=30" in command
 
-        # A kind every node provides needs no arguments
         self.worker.boss.config.slurm_accelerator_args = [
             toil.batchSystems.slurm.parse_accelerator_args("qpu=")
         ]
@@ -870,7 +862,6 @@ class SlurmTest(ToilTest):
             )
         ]
 
-        # A property the arguments need but the job doesn't give is refused by name
         missing = [{"kind": "qpu", "count": 1, "properties": {"backend": "sim"}}]
         with self.assertRaisesRegex(ValueError, "accelerator property qubits"):
             self.worker.prepareSbatch(1, 100, 5, 0, "job7", None, missing)
@@ -896,7 +887,6 @@ class SlurmTest(ToilTest):
         ):
             check([{"kind": "qpu", "count": 1}])
 
-        # Kinds whose arguments need properties can't be had without them
         boss.config.slurm_accelerator_args = [("qpu", ["--qpu={backend}"])]
         check([{"kind": "qpu", "count": 1, "properties": {"backend": "sim"}}])
         with self.assertRaisesRegex(

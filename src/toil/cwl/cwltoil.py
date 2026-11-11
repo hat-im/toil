@@ -3585,8 +3585,6 @@ def makeJob(
         for requirement_type in REQUIREMENT_TYPES:
             req, _ = tool.get_requirement(requirement_type)
             if req and has_substitution(list(req.values())):
-                # One of the values in this requirement, perhaps nested like
-                # an accelerator's properties, has a text substitution in it.
                 has_dynamic_resource_requirement = True
 
         if has_dynamic_resource_requirement or (

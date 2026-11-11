@@ -1080,9 +1080,6 @@ class SlurmBatchSystem(AbstractGridEngineBatchSystem):
             partition: str | None = None
             qos: str | None = None
 
-            # The arguments providing the job's accelerators are requirements
-            # of the job: a partition among them is the partition it must run
-            # in, and the rest pass through.
             accelerator_partition: str | None = None
             i = 0
             while i < len(accelerator_args):
