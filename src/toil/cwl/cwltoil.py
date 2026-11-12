@@ -3580,6 +3580,7 @@ def makeJob(
             "ResourceRequirement",
             "http://commonwl.org/cwltool#CUDARequirement",
             TOIL_ACCELERATOR_REQUIREMENT,
+            "ToolTimeLimit",
         ]
         has_dynamic_resource_requirement = False
         for requirement_type in REQUIREMENT_TYPES:
