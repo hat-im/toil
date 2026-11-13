@@ -109,6 +109,7 @@ class LSFBatchSystem(AbstractGridEngineBatchSystem):
             jobName: str,
             job_environment: dict[str, str] | None = None,
             accelerators: list[AcceleratorRequirement] | None = None,
+            processes: int = 1,
         ) -> tuple[list[str], dict[str, str] | None]:
             return (
                 self.prepareBsub(cpu, memory, jobID) + [command],

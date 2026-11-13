@@ -133,6 +133,7 @@ class TorqueBatchSystem(AbstractGridEngineBatchSystem):
             jobName: str,
             job_environment: dict[str, str] | None = None,
             accelerators: list[AcceleratorRequirement] | None = None,
+            processes: int = 1,
         ) -> list[str]:
             return self.prepareQsub(cpu, memory, jobID, job_environment) + [
                 self.generateTorqueWrapper(command, jobID)

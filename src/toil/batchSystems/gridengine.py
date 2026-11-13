@@ -66,6 +66,7 @@ class GridEngineBatchSystem(AbstractGridEngineBatchSystem):
             jobName: str,
             job_environment: dict[str, str] | None = None,
             accelerators: list[AcceleratorRequirement] | None = None,
+            processes: int = 1,
         ) -> list[str]:
             # POSIX qsub
             # <https://pubs.opengroup.org/onlinepubs/9699919799.2008edition/utilities/qsub.html>

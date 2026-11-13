@@ -45,6 +45,7 @@ logger = logging.getLogger(__name__)
 # Unit name of the job
 # Environment dict for the job
 # Accelerator requirements for the job
+# Number of processes
 JobTuple = tuple[
     int,
     float,
@@ -55,6 +56,7 @@ JobTuple = tuple[
     str,
     dict[str, str] | None,
     list[AcceleratorRequirement],
+    int,
 ]
 
 
@@ -174,6 +176,7 @@ class AbstractGridEngineBatchSystem(BatchSystemCleanupSupport):
                     jobName,
                     environment,
                     accelerators,
+                    processes,
                 ) = self.waitingJobs.pop(0)
                 if self.boss.config.memory_is_product and cpu > 1:
                     memory = int(memory // cpu)
@@ -188,6 +191,7 @@ class AbstractGridEngineBatchSystem(BatchSystemCleanupSupport):
                     jobName,
                     environment,
                     accelerators,
+                    processes,
                 )
                 logger.debug("Running %r", subLine)
                 batchJobID = self.boss.with_retries(self.submitJob, subLine)
@@ -407,6 +411,7 @@ class AbstractGridEngineBatchSystem(BatchSystemCleanupSupport):
             jobName: str,
             job_environment: dict[str, str] | None = None,
             accelerators: list[AcceleratorRequirement] | None = None,
+            processes: int = 1,
         ) -> T:
             """
             Preparation in putting together something submittable
@@ -421,6 +426,8 @@ class AbstractGridEngineBatchSystem(BatchSystemCleanupSupport):
             :param: jobName: the name of the Toil job, to provide metadata to batch systems if desired
             :param: job_environment: the environment variables to be set on the worker
             :param: accelerators: the accelerators the job needs
+            :param: processes: number of processes the job starts, sharing its
+                cores and memory
 
             :returns: the submission to pass to submitJob()
             """
@@ -533,6 +540,7 @@ class AbstractGridEngineBatchSystem(BatchSystemCleanupSupport):
                     get_job_kind(job_desc.get_names()),
                     job_environment,
                     job_desc.accelerators,
+                    job_desc.processes,
                 )
             )
             logger.debug(

@@ -54,6 +54,7 @@ class HTCondorBatchSystem(AbstractGridEngineBatchSystem):
             jobName: str,
             job_environment: dict[str, str] | None = None,
             accelerators: list[AcceleratorRequirement] | None = None,
+            processes: int = 1,
         ) -> htcondor.Submit:
             if accelerators:
                 logger.warning(
