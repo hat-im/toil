@@ -1462,7 +1462,6 @@ class SlurmBatchSystem(AbstractGridEngineBatchSystem):
             type=parse_accelerator_args,
             action="append",
             default=[],
-            metavar="KIND=ARGS",
             help="sbatch arguments for Slurm jobs that ask for an accelerator "
             "other than GPUs, for one accelerator kind, such as the partition "
             "that has it (fpga=--partition=fpga-nodes) or a site's own option "
