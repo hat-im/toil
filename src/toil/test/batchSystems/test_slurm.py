@@ -845,7 +845,7 @@ class SlurmTest(ToilTest):
         ps = toil.batchSystems.slurm.SlurmBatchSystem.PartitionSet()
         self.worker.boss.partitions = ps
         self.worker.boss.config.slurm_accelerator_args = [
-            toil.batchSystems.slurm.parse_accelerator_args(
+            toil.batchSystems.slurm.SLURM_ACCELERATOR_ARGS.parse(
                 "qpu=--qpu={backend} --max-qubits={qubits} --comment={{literal}}"
             )
         ]
@@ -861,12 +861,12 @@ class SlurmTest(ToilTest):
 
         # A kind every node provides needs no arguments
         self.worker.boss.config.slurm_accelerator_args = [
-            toil.batchSystems.slurm.parse_accelerator_args("qpu=")
+            toil.batchSystems.slurm.SLURM_ACCELERATOR_ARGS.parse("qpu=")
         ]
         command = self.worker.prepareSbatch(1, 100, 5, 0, "job8", None, small)
         assert not any(arg.startswith("--qpu") for arg in command)
         self.worker.boss.config.slurm_accelerator_args = [
-            toil.batchSystems.slurm.parse_accelerator_args(
+            toil.batchSystems.slurm.SLURM_ACCELERATOR_ARGS.parse(
                 "qpu=--qpu={backend} --max-qubits={qubits} --comment={{literal}}"
             )
         ]

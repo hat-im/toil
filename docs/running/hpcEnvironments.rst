@@ -80,6 +80,19 @@ Slurm Tips
 
 #. If running CWL workflows on Slurm, with a shared filesystem, you can try the ``--bypass-file-store`` option to ``toil-cwl-runner``. It may speed up your workflow, but you may also need to make sure to change Toil's work directory to a shared directory provided with the ``--workDir`` option in order for it to work properly across machines.
 
+.. _runningTorque:
+
+Running on Torque or PBS
+------------------------
+
+To run a Toil workflow on Torque or PBS Pro, include ``--batchSystem torque`` in your command line arguments. Other ``qsub`` arguments your cluster needs, such as its account or queue, can be passed via the ``TOIL_TORQUE_ARGS`` environment variable, and extra resource requirements via ``TOIL_TORQUE_REQS``.
+
+Torque does not request accelerators of any kind, GPUs included, by itself. As on Slurm, you give each kind the ``qsub`` arguments a job needing it is submitted with, with the ``--torqueAcceleratorArgs`` argument, given once per kind as ``KIND=ARGS``, with ``{name}`` fields filled from the job's accelerator properties; a job needing a kind that isn't given is refused. For example, if your FPGAs are in a queue named ``fpga-nodes``, and every node can run a quantum simulator a job starts for itself, you would run::
+
+    $ toil-cwl-runner --batchSystem torque --batchLogsDir ./logs \
+      --torqueAcceleratorArgs 'fpga=-q fpga-nodes' \
+      --torqueAcceleratorArgs qpu= workflow.cwl inputs.yml
+
 
 Standard Output/Error from Batch System Jobs
 --------------------------------------------

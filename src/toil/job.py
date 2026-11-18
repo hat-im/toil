@@ -189,7 +189,8 @@ class AcceleratorRequirement(TypedDict):
     What kind of accelerator is required. Can be "gpu", which batch systems
     know how to provide. Any other kind, like "fpga", is provided only by a
     batch system configured with where to find it (for example, with
-    ``--slurmAcceleratorArgs`` on Slurm); other batch systems refuse it.
+    ``--slurmAcceleratorArgs`` on Slurm or ``--torqueAcceleratorArgs`` on
+    Torque); other batch systems refuse it.
     """
     model: NotRequired[str]
     """
@@ -219,7 +220,8 @@ class AcceleratorRequirement(TypedDict):
     What else the job needs of the accelerator, by name, such as how large a
     problem it will run on it. The names and values are the site's own: a
     batch system configured to ask for the accelerator with them (for example,
-    with ``{name}`` fields in ``--slurmAcceleratorArgs`` on Slurm) passes them
+    with ``{name}`` fields in ``--slurmAcceleratorArgs`` on Slurm or
+    ``--torqueAcceleratorArgs`` on Torque) passes them
     on, and other batch systems ignore them.
     """
 

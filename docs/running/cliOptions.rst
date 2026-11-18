@@ -282,6 +282,16 @@ levels in toil are based on priority from the logging module:
                         multi-core jobs.
   --slurmArgs SLURM_ARGS
                         Extra arguments to pass to Slurm.
+  --torqueAcceleratorArgs TORQUE_ACCELERATOR_ARGS
+                        qsub arguments for Torque or PBS jobs that ask for an
+                        accelerator, for one accelerator kind, such as the
+                        queue that has it (fpga=-q fpga-nodes) or a site's
+                        own resource for it. Give it once per kind. A {name}
+                        field in them is filled with the job's accelerator
+                        property of that name. Jobs asking for an accelerator
+                        kind not given here, or lacking a property it needs,
+                        are refused. KIND= with no arguments says a job gets
+                        the kind wherever it runs.
   --kubernetesHostPath KUBERNETES_HOST_PATH
                         Path on Kubernetes hosts to use as shared inter-pod temp
                         directory.

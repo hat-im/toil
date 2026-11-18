@@ -16,6 +16,7 @@ import math
 import os
 import shlex
 import tempfile
+from argparse import ArgumentParser, _ArgumentGroup
 from queue import Empty, Queue
 from shlex import quote
 
@@ -24,11 +25,27 @@ from toil.batchSystems.abstractGridEngineBatchSystem import (
     AbstractGridEngineBatchSystem,
     JobTuple,
 )
-from toil.job import AcceleratorRequirement
+from toil.batchSystems.accelerator_args import AcceleratorArgsOption
+from toil.batchSystems.options import OptionSetter
+from toil.job import AcceleratorRequirement, Requirer
 from toil.lib.conversions import hms_duration_to_seconds
 from toil.lib.misc import CalledProcessErrorStderr, call_command
 
 logger = logging.getLogger(__name__)
+
+TORQUE_ACCELERATOR_ARGS = AcceleratorArgsOption(
+    "Torque", "--torqueAcceleratorArgs", "torque_accelerator_args"
+)
+
+
+def refuse_toil_resources(args: str) -> None:
+    """
+    Raise ValueError if the qsub arguments set resources Toil sets itself.
+    """
+    if ("mem=" in args) or ("nodes=" in args) or ("ppn=" in args):
+        raise ValueError(
+            f"Incompatible resource arguments ('mem=', 'nodes=', 'ppn='): {args}"
+        )
 
 
 class TorqueBatchSystem(AbstractGridEngineBatchSystem):
@@ -135,9 +152,9 @@ class TorqueBatchSystem(AbstractGridEngineBatchSystem):
             accelerators: list[AcceleratorRequirement] | None = None,
             processes: int = 1,
         ) -> list[str]:
-            return self.prepareQsub(cpu, memory, jobID, job_environment) + [
-                self.generateTorqueWrapper(command, jobID)
-            ]
+            return self.prepareQsub(
+                cpu, memory, jobID, job_environment, accelerators
+            ) + [self.generateTorqueWrapper(command, jobID)]
 
         def submitJob(self, subLine: list[str]) -> str:
             return call_command(subLine)
@@ -182,6 +199,7 @@ class TorqueBatchSystem(AbstractGridEngineBatchSystem):
             mem: int,
             jobID: int,
             job_environment: dict[str, str] | None,
+            accelerators: list[AcceleratorRequirement] | None = None,
         ) -> list[str]:
 
             # TODO: passing $PWD on command line not working for -d, resorting to
@@ -224,14 +242,7 @@ class TorqueBatchSystem(AbstractGridEngineBatchSystem):
                     "TOIL_TORQUE_REQS env. variable: %s",
                     reqlineEnv,
                 )
-                if (
-                    ("mem=" in reqlineEnv)
-                    or ("nodes=" in reqlineEnv)
-                    or ("ppn=" in reqlineEnv)
-                ):
-                    raise ValueError(
-                        f"Incompatible resource arguments ('mem=', 'nodes=', 'ppn='): {reqlineEnv}"
-                    )
+                refuse_toil_resources(reqlineEnv)
 
                 reqline.append(reqlineEnv)
 
@@ -247,15 +258,14 @@ class TorqueBatchSystem(AbstractGridEngineBatchSystem):
                     "Native Torque options appended to qsub from TOIL_TORQUE_ARGS env. variable: %s",
                     arglineEnv,
                 )
-                if (
-                    ("mem=" in arglineEnv)
-                    or ("nodes=" in arglineEnv)
-                    or ("ppn=" in arglineEnv)
-                ):
-                    raise ValueError(
-                        f"Incompatible resource arguments ('mem=', 'nodes=', 'ppn='): {arglineEnv}"
-                    )
+                refuse_toil_resources(arglineEnv)
                 qsubline += shlex.split(arglineEnv)
+
+            accelerator_args = TORQUE_ACCELERATOR_ARGS.args_for(
+                accelerators or [], self.boss.config
+            )
+            refuse_toil_resources(shlex.join(accelerator_args))
+            qsubline += accelerator_args
 
             return qsubline
 
@@ -280,3 +290,23 @@ class TorqueBatchSystem(AbstractGridEngineBatchSystem):
                 f.write(command + "\n")
             os.close(fd)
             return tmp_file
+
+    def _check_accelerator_request(self, requirer: Requirer) -> None:
+        TORQUE_ACCELERATOR_ARGS.check(requirer, self.config)
+
+    @classmethod
+    def add_options(cls, parser: ArgumentParser | _ArgumentGroup) -> None:
+        TORQUE_ACCELERATOR_ARGS.add_to(
+            parser,
+            help="qsub arguments for Torque or PBS jobs that ask for an "
+            "accelerator, for one accelerator kind, such as the queue that has "
+            "it (fpga=-q fpga-nodes) or a site's own resource for it. Give it "
+            "once per kind. A {name} field in them is filled with the job's "
+            "accelerator property of that name. Jobs asking for an accelerator "
+            "kind not given here, or lacking a property it needs, are refused. "
+            "KIND= with no arguments says a job gets the kind wherever it runs.",
+        )
+
+    @classmethod
+    def setOptions(cls, setOption: OptionSetter) -> None:
+        setOption("torque_accelerator_args")

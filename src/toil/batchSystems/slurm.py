@@ -18,7 +18,6 @@ import logging
 import math
 import os
 import shlex
-import string
 import sys
 from argparse import SUPPRESS, ArgumentParser, _ArgumentGroup
 from collections.abc import Callable
@@ -28,11 +27,11 @@ from typing import NamedTuple, TypeVar
 from toil.batchSystems.abstractBatchSystem import (
     EXIT_STATUS_UNAVAILABLE_VALUE,
     BatchJobExitReason,
-    InsufficientSystemResources,
 )
 from toil.batchSystems.abstractGridEngineBatchSystem import (
     AbstractGridEngineBatchSystem,
 )
+from toil.batchSystems.accelerator_args import AcceleratorArgsOption
 from toil.batchSystems.options import OptionSetter
 from toil.bus import get_job_kind
 from toil.common import Config
@@ -130,117 +129,12 @@ def parse_slurm_time(slurm_time: str) -> int:
     return days * 86400 + result
 
 
-def parse_accelerator_args(spec: str) -> tuple[str, list[str]]:
-    """
-    Parse the Slurm arguments that provide one kind of accelerator.
-
-    The value is ``KIND=ARGS``, where ARGS are sbatch arguments, split as a
-    shell would split them. A ``{name}`` field in them is filled, for each
-    job, with the property of that name of the job's accelerator; ``{{`` and
-    ``}}`` stand for braces. ``KIND=`` with no arguments says a job gets the
-    kind wherever it runs, such as when the job starts it itself.
-
-    >>> parse_accelerator_args("fpga=--partition=fpgas")
-    ('fpga', ['--partition=fpgas'])
-    >>> parse_accelerator_args("qpu=--qpu=sim --comment='quantum job'")
-    ('qpu', ['--qpu=sim', '--comment=quantum job'])
-    >>> parse_accelerator_args("qpu=--qpu={backend} --max-qubits={qubits}")
-    ('qpu', ['--qpu={backend}', '--max-qubits={qubits}'])
-    >>> parse_accelerator_args("gpu=--partition=gpus")
-    Traceback (most recent call last):
-    ...
-    ValueError: Use --slurmGPUPartition to choose the partition for gpu accelerators
-    >>> parse_accelerator_args("qpu=")
-    ('qpu', [])
-    >>> parse_accelerator_args("fpga")
-    Traceback (most recent call last):
-    ...
-    ValueError: Expected KIND=ARGS but got: 'fpga'
-    >>> parse_accelerator_args("qpu=--qpu={0}")
-    Traceback (most recent call last):
-    ...
-    ValueError: Expected only {name} fields, each naming an accelerator property, in qpu arguments but got: '--qpu={0}'
-
-    Raises ValueError if not parseable.
-    """
-    kind, separator, args = spec.partition("=")
-    if not kind or not separator:
-        raise ValueError(f"Expected KIND=ARGS but got: {spec!r}")
-    if kind == "gpu":
-        raise ValueError(
-            "Use --slurmGPUPartition to choose the partition for gpu accelerators"
-        )
-    split = shlex.split(args)
-    for arg in split:
-        for _, name, format_spec, conversion in string.Formatter().parse(arg):
-            if name is not None and (not name.isidentifier() or format_spec or conversion):
-                raise ValueError(
-                    f"Expected only {{name}} fields, each naming an accelerator "
-                    f"property, in {kind} arguments but got: {arg!r}"
-                )
-    return kind, split
-
-
-def get_accelerator_args(
-    accelerators: list[AcceleratorRequirement],
-    accelerator_args: dict[str, list[str]],
-) -> list[str]:
-    """
-    Get the Slurm arguments that provide the given accelerators.
-
-    GPUs are requested through Slurm GRES and need no arguments of their own.
-    Every other kind of accelerator is provided by the sbatch arguments it is
-    mapped to, such as the partition that has it, with their fields filled
-    from the accelerator's properties. The accelerator counts are left to
-    those arguments: a job submitted with them is assumed to get the
-    accelerators they provide.
-
-    >>> get_accelerator_args([{"kind": "gpu", "count": 1}], {})
-    []
-    >>> get_accelerator_args([{"kind": "fpga", "count": 1}], {"fpga": ["--partition=fpgas"]})
-    ['--partition=fpgas']
-    >>> get_accelerator_args(
-    ...     [{"kind": "qpu", "count": 1, "properties": {"backend": "sim", "qubits": "3"}}],
-    ...     {"qpu": ["--qpu={backend}", "--max-qubits={qubits}"]},
-    ... )
-    ['--qpu=sim', '--max-qubits=3']
-    >>> get_accelerator_args([{"kind": "fpga", "count": 1}], {})
-    Traceback (most recent call last):
-    ...
-    ValueError: No Slurm arguments are configured to provide fpga accelerators; map them with --slurmAcceleratorArgs fpga=ARGS
-    >>> get_accelerator_args(
-    ...     [{"kind": "qpu", "count": 1, "properties": {"backend": "sim"}}],
-    ...     {"qpu": ["--qpu={backend}", "--max-qubits={qubits}"]},
-    ... )
-    Traceback (most recent call last):
-    ...
-    ValueError: The Slurm arguments for qpu accelerators need the accelerator property qubits, which the job's qpu accelerator does not have
-
-    Raises ValueError if a kind has no arguments, or the accelerator lacks a
-    property its arguments need.
-    """
-    args: list[str] = []
-    for kind, properties in dict.fromkeys(
-        (accelerator["kind"], tuple(sorted(accelerator.get("properties", {}).items())))
-        for accelerator in accelerators
-    ):
-        if kind == "gpu":
-            continue
-        if kind not in accelerator_args:
-            raise ValueError(
-                f"No Slurm arguments are configured to provide {kind} accelerators; "
-                f"map them with --slurmAcceleratorArgs {kind}=ARGS"
-            )
-        for arg in accelerator_args[kind]:
-            try:
-                args.append(arg.format_map(dict(properties)))
-            except KeyError as e:
-                raise ValueError(
-                    f"The Slurm arguments for {kind} accelerators need the "
-                    f"accelerator property {e.args[0]}, which the job's {kind} "
-                    f"accelerator does not have"
-                ) from e
-    return args
+SLURM_ACCELERATOR_ARGS = AcceleratorArgsOption(
+    "Slurm",
+    "--slurmAcceleratorArgs",
+    "slurm_accelerator_args",
+    {"gpu": "Use --slurmGPUPartition to choose the partition for gpu accelerators"},
+)
 
 
 # For parsing user-provided option overrides (or self-generated
@@ -1050,8 +944,8 @@ class SlurmBatchSystem(AbstractGridEngineBatchSystem):
 
             accelerators = accelerators or []
             gpus = sum(a["count"] for a in accelerators if a["kind"] == "gpu")
-            accelerator_args = get_accelerator_args(
-                accelerators, dict(self.boss.config.slurm_accelerator_args or [])  # type: ignore[attr-defined]
+            accelerator_args = SLURM_ACCELERATOR_ARGS.args_for(
+                accelerators, self.boss.config
             )
 
             # Start by naming the job
@@ -1360,19 +1254,7 @@ class SlurmBatchSystem(AbstractGridEngineBatchSystem):
         return ["SLURM_.*"]
 
     def _check_accelerator_request(self, requirer: Requirer) -> None:
-        try:
-            get_accelerator_args(
-                requirer.accelerators, dict(self.config.slurm_accelerator_args or [])  # type: ignore[attr-defined]
-            )
-        except ValueError as e:
-            raise InsufficientSystemResources(
-                requirer,
-                "accelerators",
-                details=[
-                    f"The accelerators {requirer.accelerators} could not be provided.",
-                    str(e),
-                ],
-            ) from e
+        SLURM_ACCELERATOR_ARGS.check(requirer, self.config)
 
     ###
     ### The interface for SLURM
@@ -1456,12 +1338,8 @@ class SlurmBatchSystem(AbstractGridEngineBatchSystem):
             env_var="TOIL_SLURM_GPU_QOS",
             help="Quality Of Service to request for Slurm jobs if they ask for GPUs.",
         )
-        parser.add_argument(
-            "--slurmAcceleratorArgs",
-            dest="slurm_accelerator_args",
-            type=parse_accelerator_args,
-            action="append",
-            default=[],
+        SLURM_ACCELERATOR_ARGS.add_to(
+            parser,
             help="sbatch arguments for Slurm jobs that ask for an accelerator "
             "other than GPUs, for one accelerator kind, such as the partition "
             "that has it (fpga=--partition=fpga-nodes) or a site's own option "

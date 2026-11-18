@@ -169,7 +169,8 @@ The step's Toil job then requires that accelerator, and the batch system must
 know how to provide it. On Slurm, give each kind the ``sbatch`` arguments that
 provide it, such as its partition, with ``--slurmAcceleratorArgs`` (see
 :ref:`runningSlurm`), whose ``{name}`` fields are filled from the step's
-properties. With the
+properties; on Torque, its ``qsub`` arguments with ``--torqueAcceleratorArgs``
+(see :ref:`runningTorque`). With the
 single machine batch system, say how many of each kind the machine has with
 ``--localAccelerators``, for example ``--localAccelerators fpga=1``. A batch system
 that does not know how to provide a kind refuses the job with an error naming
