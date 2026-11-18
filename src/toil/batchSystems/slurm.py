@@ -32,6 +32,7 @@ from toil.batchSystems.abstractGridEngineBatchSystem import (
     AbstractGridEngineBatchSystem,
 )
 from toil.batchSystems.accelerator_args import AcceleratorArgsOption
+from toil.batchSystems.allocation import slurm_nodes
 from toil.batchSystems.options import OptionSetter
 from toil.bus import get_job_kind
 from toil.common import Config
@@ -1251,7 +1252,16 @@ class SlurmBatchSystem(AbstractGridEngineBatchSystem):
 
     @classmethod
     def process_placement_variables(cls) -> list[str]:
-        return ["SLURM_.*"]
+        return super().process_placement_variables() + ["SLURM_.*"]
+
+    @classmethod
+    def process_hosts(cls, processes: int) -> list[str]:
+        # A job of more than one process is submitted as that many tasks.
+        return [
+            node
+            for node, tasks in slurm_nodes("SLURM_TASKS_PER_NODE").items()
+            for _ in range(tasks)
+        ]
 
     def _check_accelerator_request(self, requirer: Requirer) -> None:
         SLURM_ACCELERATOR_ARGS.check(requirer, self.config)
