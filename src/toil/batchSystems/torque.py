@@ -26,6 +26,7 @@ from toil.batchSystems.abstractGridEngineBatchSystem import (
     JobTuple,
 )
 from toil.batchSystems.accelerator_args import AcceleratorArgsOption
+from toil.batchSystems.allocation import pbs_hosts
 from toil.batchSystems.options import OptionSetter
 from toil.job import AcceleratorRequirement
 from toil.lib.conversions import hms_duration_to_seconds
@@ -38,13 +39,17 @@ TORQUE_ACCELERATOR_ARGS = AcceleratorArgsOption(
 )
 
 
-def refuse_toil_resources(args: str) -> None:
+def refuse_toil_resources(args: str, processes: int = 1) -> None:
     """
-    Raise ValueError if the qsub arguments set resources Toil sets itself.
+    Raise ValueError if the qsub arguments set resources Toil sets itself,
+    including the placement of a job of more than one process.
     """
-    if ("mem=" in args) or ("nodes=" in args) or ("ppn=" in args):
+    toil_resources = ["mem=", "nodes=", "ppn=", "select="]
+    if processes > 1:
+        toil_resources.append("place=")
+    if any(resource in args for resource in toil_resources):
         raise ValueError(
-            f"Incompatible resource arguments ('mem=', 'nodes=', 'ppn='): {args}"
+            f"Incompatible resource arguments ({', '.join(map(repr, toil_resources))}): {args}"
         )
 
 
@@ -154,7 +159,7 @@ class TorqueBatchSystem(AbstractGridEngineBatchSystem):
             processes: int = 1,
         ) -> list[str]:
             return self.prepareQsub(
-                cpu, memory, jobID, job_environment, accelerators
+                cpu, memory, jobID, job_environment, accelerators, processes
             ) + [self.generateTorqueWrapper(command, jobID)]
 
         def submitJob(self, subLine: list[str]) -> str:
@@ -201,7 +206,16 @@ class TorqueBatchSystem(AbstractGridEngineBatchSystem):
             jobID: int,
             job_environment: dict[str, str] | None,
             accelerators: list[AcceleratorRequirement] | None = None,
+            processes: int = 1,
         ) -> list[str]:
+            """
+            Returns the qsub command line to run to queue the job, without its
+            script.
+
+            On PBS Pro, a job of more than one process is submitted as a chunk
+            per process sharing its cores and memory, which PBS may place on
+            different nodes. OSS Torque jobs can only have one process.
+            """
 
             # TODO: passing $PWD on command line not working for -d, resorting to
             # $PBS_O_WORKDIR but maybe should fix this here instead of in script?
@@ -222,13 +236,25 @@ class TorqueBatchSystem(AbstractGridEngineBatchSystem):
                 )
 
             reqline = list()
-            if self._version == "pro":
+            if self._version == "pro" and processes > 1:
+                request = (
+                    f"select={processes}:ncpus={math.ceil(cpu / processes)}:mpiprocs=1"
+                )
+                if mem is not None:
+                    request += f":mem={math.ceil(mem / 1024 / processes)}K"
+                reqline.append(request)
+            elif self._version == "pro":
                 request = "select=1"
                 if mem is not None:
                     request += f":mem={mem//1024}K"
                 if cpu is not None and math.ceil(cpu) > 1:
                     request += ":ncpus=" + str(int(math.ceil(cpu)))
                 reqline.append(request)
+            elif processes > 1:
+                raise ValueError(
+                    f"Cannot start the {processes} processes of job {jobID} on "
+                    f"OSS Torque, which Toil only gives jobs of one process"
+                )
             else:
                 if mem is not None:
                     reqline.append(f"mem={mem//1024}K")
@@ -243,7 +269,7 @@ class TorqueBatchSystem(AbstractGridEngineBatchSystem):
                     "TOIL_TORQUE_REQS env. variable: %s",
                     reqlineEnv,
                 )
-                refuse_toil_resources(reqlineEnv)
+                refuse_toil_resources(reqlineEnv, processes)
 
                 reqline.append(reqlineEnv)
 
@@ -259,13 +285,13 @@ class TorqueBatchSystem(AbstractGridEngineBatchSystem):
                     "Native Torque options appended to qsub from TOIL_TORQUE_ARGS env. variable: %s",
                     arglineEnv,
                 )
-                refuse_toil_resources(arglineEnv)
+                refuse_toil_resources(arglineEnv, processes)
                 qsubline += shlex.split(arglineEnv)
 
             accelerator_args = TORQUE_ACCELERATOR_ARGS.args_for(
                 accelerators or [], self.boss.config
             )
-            refuse_toil_resources(shlex.join(accelerator_args))
+            refuse_toil_resources(shlex.join(accelerator_args), processes)
             qsubline += accelerator_args
 
             return qsubline
@@ -291,6 +317,16 @@ class TorqueBatchSystem(AbstractGridEngineBatchSystem):
                 f.write(command + "\n")
             os.close(fd)
             return tmp_file
+
+    @classmethod
+    def process_placement_variables(cls) -> list[str]:
+        return super().process_placement_variables() + ["PBS_.*"]
+
+    @classmethod
+    def process_hosts(cls, processes: int) -> list[str]:
+        # A job of more than one process is submitted as a chunk per process,
+        # each with one MPI process and so one line in PBS_NODEFILE.
+        return pbs_hosts()
 
     @classmethod
     def add_options(cls, parser: ArgumentParser | _ArgumentGroup) -> None:

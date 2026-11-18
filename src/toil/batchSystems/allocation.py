@@ -87,6 +87,15 @@ def slurm_nodes(counts_variable: str) -> dict[str, int]:
     return dict(zip(names, counts))
 
 
+def pbs_hosts() -> list[str]:
+    """
+    Get the host of each MPI process PBS planned for the PBS job Toil runs in,
+    from the lines of its PBS_NODEFILE.
+    """
+    with open(os.environ["PBS_NODEFILE"]) as nodefile:
+        return [line.strip() for line in nodefile if line.strip()]
+
+
 def pbs_cores() -> dict[str, int]:
     """
     Get each node of the PBS job Toil runs in, in PBS_NODEFILE's order, with
@@ -95,8 +104,7 @@ def pbs_cores() -> dict[str, int]:
     PBS_NODEFILE has a line per MPI process PBS planned for a node, not per
     core, so the cores come from the job's exec_vnode.
     """
-    with open(os.environ["PBS_NODEFILE"]) as nodefile:
-        names = list(dict.fromkeys(line.strip() for line in nodefile if line.strip()))
+    names = list(dict.fromkeys(pbs_hosts()))
     jobs = json.loads(
         call_command(["qstat", "-f", "-F", "json", os.environ["PBS_JOBID"]])
     )["Jobs"]

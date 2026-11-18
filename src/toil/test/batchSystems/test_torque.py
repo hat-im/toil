@@ -1,4 +1,5 @@
 import sys
+from pathlib import Path
 from queue import Queue
 from uuid import uuid4
 
@@ -98,6 +99,60 @@ class TorqueTest(ToilTest):
         )
         assert command[-3:-1] == ["-q", "fpgas"]
 
+    def test_prepareQsub_processes(self):
+        self.worker._version = "pro"
+        command = self.worker.prepareQsub(4, 4 * 2**30, 5, None)
+        assert command[command.index("-l") + 1] == "select=1:mem=4194304K:ncpus=4"
+
+        command = self.worker.prepareQsub(96, 96 * 2**30, 5, None, None, 2)
+        assert (
+            command[command.index("-l") + 1]
+            == "select=2:ncpus=48:mpiprocs=1:mem=50331648K"
+        )
+
+        command = self.worker.prepareQsub(1, 2**30, 5, None, None, 3)
+        assert (
+            command[command.index("-l") + 1]
+            == "select=3:ncpus=1:mpiprocs=1:mem=349526K"
+        )
+
+    def test_prepareSubmission_processes(self):
+        self.worker._version = "pro"
+        command = self.worker.prepareSubmission(
+            2, 2**30, 0, 0, 5, "true", "job5", None, None, 2
+        )
+        assert command[command.index("-l") + 1].startswith("select=2:ncpus=1:")
+
+    def test_prepareQsub_placement_args(self):
+        self.worker._version = "pro"
+        for variable in ("TOIL_TORQUE_ARGS", "TOIL_TORQUE_REQS"):
+            for args in ("-l select=2:ncpus=4", "-l place=scatter"):
+                with self.subTest(variable=variable, args=args):
+                    self.monkeypatch.setenv(variable, args)
+                    with self.assertRaisesRegex(ValueError, "Incompatible"):
+                        self.worker.prepareQsub(2, 2**30, 5, None, None, 2)
+                    self.monkeypatch.delenv(variable)
+
+        self.monkeypatch.setenv("TOIL_TORQUE_ARGS", "-l select=2")
+        with self.assertRaisesRegex(ValueError, "Incompatible"):
+            self.worker.prepareQsub(2, 2**30, 5, None)
+        self.monkeypatch.setenv("TOIL_TORQUE_ARGS", "-l place=excl")
+        command = self.worker.prepareQsub(2, 2**30, 5, None)
+        assert command[-2:] == ["-l", "place=excl"]
+
+    def test_prepareQsub_oss_processes(self):
+        self.worker._version = "oss"
+        command = self.worker.prepareQsub(2, 2**30, 5, None)
+        assert command[command.index("-l") + 1] == "mem=1048576K,nodes=1:ppn=2"
+        with self.assertRaisesRegex(ValueError, "OSS Torque"):
+            self.worker.prepareQsub(2, 2**30, 5, None, None, 2)
+
+    def test_process_placement_variables(self):
+        assert toil.batchSystems.torque.TorqueBatchSystem.process_placement_variables() == [
+            "TOIL_PROCESS_HOSTFILE",
+            "PBS_.*",
+        ]
+
     def test_check_accelerator_request(self):
         boss = toil.batchSystems.torque.TorqueBatchSystem.__new__(
             toil.batchSystems.torque.TorqueBatchSystem
@@ -138,3 +193,16 @@ class TorqueTest(ToilTest):
         config.setOptions(options)
         assert config.torque_accelerator_args == [("qpu", []), ("fpga", ["-q", "fpgas"])]
 
+
+def test_process_hosts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """
+    A PBS job's processes must be named on the hosts of its PBS_NODEFILE.
+    """
+    nodefile = tmp_path / "nodefile"
+    nodefile.write_text("node1.cluster\nnode1.cluster\nnode2.cluster\n")
+    monkeypatch.setenv("PBS_NODEFILE", str(nodefile))
+    assert toil.batchSystems.torque.TorqueBatchSystem.process_hosts(3) == [
+        "node1.cluster",
+        "node1.cluster",
+        "node2.cluster",
+    ]
