@@ -27,7 +27,7 @@ from toil.batchSystems.abstractGridEngineBatchSystem import (
 )
 from toil.batchSystems.accelerator_args import AcceleratorArgsOption
 from toil.batchSystems.options import OptionSetter
-from toil.job import AcceleratorRequirement, Requirer
+from toil.job import AcceleratorRequirement
 from toil.lib.conversions import hms_duration_to_seconds
 from toil.lib.misc import CalledProcessErrorStderr, call_command
 
@@ -49,6 +49,7 @@ def refuse_toil_resources(args: str) -> None:
 
 
 class TorqueBatchSystem(AbstractGridEngineBatchSystem):
+    accelerator_args = TORQUE_ACCELERATOR_ARGS
 
     # class-specific Worker
     class GridEngineThread(AbstractGridEngineBatchSystem.GridEngineThread[list[str]]):
@@ -290,9 +291,6 @@ class TorqueBatchSystem(AbstractGridEngineBatchSystem):
                 f.write(command + "\n")
             os.close(fd)
             return tmp_file
-
-    def _check_accelerator_request(self, requirer: Requirer) -> None:
-        TORQUE_ACCELERATOR_ARGS.check(requirer, self.config)
 
     @classmethod
     def add_options(cls, parser: ArgumentParser | _ArgumentGroup) -> None:

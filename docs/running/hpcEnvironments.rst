@@ -11,7 +11,7 @@ To use one of these batch systems specify the ``--batchSystem`` argument to the 
 Due to the cost and complexity of maintaining support for these schedulers we currently consider all but Slurm to be "community supported", that is the core development team does not regularly test or develop support for these systems. However, there are members of the Toil community currently deploying Toil in a wide variety of HPC environments and we welcome external contributions.
 
 Developing the support of a new or existing batch system involves extending the abstract batch system class :class:`toil.batchSystems.abstractBatchSystem.AbstractBatchSystem`.
-A batch system that can provide accelerators, of any kind, says so by overriding ``_check_accelerator_request()``; batch systems built on :class:`toil.batchSystems.abstractGridEngineBatchSystem.AbstractGridEngineBatchSystem` also get each job's accelerators in ``prepareSubmission()``, so they can turn them into their own submission arguments, such as a queue for each kind configured by the user.
+A batch system that can provide accelerators, of any kind, says so by overriding ``_check_accelerator_request()``; batch systems built on :class:`toil.batchSystems.abstractGridEngineBatchSystem.AbstractGridEngineBatchSystem` instead set its ``accelerator_args`` to an option of their own, a :class:`toil.batchSystems.accelerator_args.AcceleratorArgsOption` through which the user gives the submission arguments for each kind, such as its queue, and get each job's accelerators in ``prepareSubmission()`` to turn into those arguments.
 
 .. _multiProcessJobs:
 

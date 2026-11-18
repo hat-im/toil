@@ -24,10 +24,11 @@ from toil.batchSystems.abstractBatchSystem import (
     BatchJobExitReason,
     UpdatedBatchJobInfo,
 )
+from toil.batchSystems.accelerator_args import AcceleratorArgsOption
 from toil.batchSystems.cleanup_support import BatchSystemCleanupSupport
 from toil.bus import ExternalBatchIdMessage, get_job_kind
 from toil.common import Config
-from toil.job import AcceleratorRequirement, JobDescription
+from toil.job import AcceleratorRequirement, JobDescription, Requirer
 from toil.lib.misc import CalledProcessErrorStderr
 from toil.lib.retry import DEFAULT_DELAYS, old_retry
 from toil.statsAndLogging import TRACE
@@ -484,6 +485,13 @@ class AbstractGridEngineBatchSystem(BatchSystemCleanupSupport):
             """
             raise NotImplementedError()
 
+    accelerator_args: AcceleratorArgsOption | None = None
+    """
+    The option giving the submission arguments that provide each accelerator
+    kind, for a batch system that takes one. A batch system without it
+    provides no accelerators.
+    """
+
     def __init__(
         self, config: Config, maxCores: float, maxMemory: float, maxDisk: int
     ) -> None:
@@ -513,6 +521,12 @@ class AbstractGridEngineBatchSystem(BatchSystemCleanupSupport):
     @classmethod
     def supportsAutoDeployment(cls) -> bool:
         return False
+
+    def _check_accelerator_request(self, requirer: Requirer) -> None:
+        if self.accelerator_args is None:
+            super()._check_accelerator_request(requirer)
+        else:
+            self.accelerator_args.check(requirer, self.config)
 
     def issueBatchJob(
         self,

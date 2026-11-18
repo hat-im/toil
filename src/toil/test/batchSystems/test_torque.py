@@ -99,14 +99,14 @@ class TorqueTest(ToilTest):
         assert command[-3:-1] == ["-q", "fpgas"]
 
     def test_check_accelerator_request(self):
-        boss = FakeBatchSystem()
+        boss = toil.batchSystems.torque.TorqueBatchSystem.__new__(
+            toil.batchSystems.torque.TorqueBatchSystem
+        )
+        boss.config = FakeBatchSystem().config
         boss.config.torque_accelerator_args = [("fpga", ["-q", "fpgas"])]
 
         def check(accelerators):
-            requirer = Requirer({"accelerators": accelerators})
-            toil.batchSystems.torque.TorqueBatchSystem._check_accelerator_request(
-                boss, requirer
-            )
+            boss._check_accelerator_request(Requirer({"accelerators": accelerators}))
 
         # Mapped kinds can be provided
         check([])

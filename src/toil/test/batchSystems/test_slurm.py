@@ -877,14 +877,14 @@ class SlurmTest(ToilTest):
             self.worker.prepareSbatch(1, 100, 5, 0, "job7", None, missing)
 
     def test_check_accelerator_request(self):
-        boss = FakeBatchSystem()
+        boss = toil.batchSystems.slurm.SlurmBatchSystem.__new__(
+            toil.batchSystems.slurm.SlurmBatchSystem
+        )
+        boss.config = FakeBatchSystem().config
         boss.config.slurm_accelerator_args = [("fpga", ["--partition=fpgas"])]
 
         def check(accelerators):
-            requirer = Requirer({"accelerators": accelerators})
-            toil.batchSystems.slurm.SlurmBatchSystem._check_accelerator_request(
-                boss, requirer
-            )
+            boss._check_accelerator_request(Requirer({"accelerators": accelerators}))
 
         # GPUs and mapped kinds can be provided
         check([{"kind": "gpu", "count": 1}])

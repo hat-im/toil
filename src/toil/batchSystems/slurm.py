@@ -36,7 +36,7 @@ from toil.batchSystems.allocation import slurm_nodes
 from toil.batchSystems.options import OptionSetter
 from toil.bus import get_job_kind
 from toil.common import Config
-from toil.job import AcceleratorRequirement, JobDescription, Requirer
+from toil.job import AcceleratorRequirement, JobDescription
 from toil.lib.conversions import strtobool
 from toil.lib.misc import CalledProcessErrorStderr, call_command
 from toil.statsAndLogging import TRACE
@@ -194,6 +194,8 @@ def parse_slurm_option_value(args: list[str], i: int) -> tuple[str, int]:
 
 
 class SlurmBatchSystem(AbstractGridEngineBatchSystem):
+    accelerator_args = SLURM_ACCELERATOR_ARGS
+
     class PartitionInfo(NamedTuple):
         partition_name: str
         gres: bool
@@ -1262,9 +1264,6 @@ class SlurmBatchSystem(AbstractGridEngineBatchSystem):
             for node, tasks in slurm_nodes("SLURM_TASKS_PER_NODE").items()
             for _ in range(tasks)
         ]
-
-    def _check_accelerator_request(self, requirer: Requirer) -> None:
-        SLURM_ACCELERATOR_ARGS.check(requirer, self.config)
 
     ###
     ### The interface for SLURM
