@@ -67,6 +67,12 @@ A kind that every node provides, such as one a job starts for itself, is given w
 
 In CWL, a step asks for such an accelerator with the ``toil:AcceleratorRequirement`` hint (see :ref:`cwlAccelerators`), with ``properties`` giving the fields; in Toil's Python API, with ``accelerators=[{"kind": "qpu", "count": 1, "properties": {"qubits": "5"}}]``.
 
+Some ``sbatch`` arguments belong to a partition rather than to every job, such as ``--exclusive`` for a partition whose nodes are only handed out whole. Give them with ``--slurmPartitionArgs``, once per partition as ``PARTITION=ARGS``; they are added once a job's partition is chosen, so a job sent elsewhere, for example by ``--slurmAcceleratorArgs``, does not get them. They can't set what chooses the partition or what Toil sets itself: the partition, time limit, QOS, exported environment, memory or CPUs. For example::
+
+    $ toil-cwl-runner --batchSystem slurm --batchLogsDir ./logs \
+      --slurmPartition compute --slurmPartitionArgs compute=--exclusive \
+      --slurmAcceleratorArgs qpu=--partition=quantum workflow.cwl inputs.yml
+
 Any additional Slurm ``sbatch`` arguments your cluster needs that aren't directly supported by Toil can be passed via the Toil ``--slurmArgs`` option, or the ``TOIL_SLURM_ARGS`` environment variable. (There is special handling for some Slurm options Toil needs to interact with, like ``--time`` or ``--partition``, if they are passed this way.)
 
 A job that starts more than one process is submitted as that many Slurm tasks with ``--ntasks``, sharing the job's cores and memory, so Slurm can place them on several nodes (see :ref:`multiProcessJobs`).

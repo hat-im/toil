@@ -276,6 +276,13 @@ levels in toil are based on priority from the logging module:
                         that name. Jobs asking for an accelerator kind not
                         given here, or lacking a property it needs, are
                         refused.
+  --slurmPartitionArgs SLURM_PARTITION_ARGS
+                        sbatch arguments for the Slurm jobs that run in one
+                        partition, such as --exclusive for a partition shared
+                        only whole (compute=--exclusive). Give it once per
+                        partition. They apply once a job's partition is
+                        chosen, so they can't set the partition, time limit,
+                        QOS, exported environment, memory or CPUs.
   --slurmPE SLURM_PE    Special partition to send Slurm jobs to if they ask
                         for more than 1 CPU. Useful for Slurm clusters that do
                         not offer a partition accepting both single-core and

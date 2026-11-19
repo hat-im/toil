@@ -22,7 +22,60 @@ from toil.common import Config
 from toil.job import AcceleratorRequirement, Requirer
 
 
-class AcceleratorArgsOption:
+class KeyedArgsOption:
+    """
+    A batch system's option giving, once per key as ``KEY=ARGS``, submission
+    arguments. ARGS are split as a shell would split them.
+    """
+
+    def __init__(self, flag: str, dest: str, key_name: str) -> None:
+        """
+        :param flag: The command line flag of the option.
+        :param dest: The name of the option in the Toil config.
+        :param key_name: What the keys name, as the help and errors show it.
+        """
+        self.flag = flag
+        self.dest = dest
+        self.key_name = key_name
+
+    def add_to(self, parser: ArgumentParser | _ArgumentGroup, help: str) -> None:
+        parser.add_argument(
+            self.flag,
+            dest=self.dest,
+            type=self.parse,
+            action="append",
+            default=[],
+            help=help,
+        )
+
+    def parse(self, spec: str) -> tuple[str, list[str]]:
+        """
+        Parse the arguments given for one key.
+
+        >>> KeyedArgsOption("--slurmPartitionArgs", "x", "PARTITION").parse(
+        ...     "quantum=--exclusive --nodes=1")
+        ('quantum', ['--exclusive', '--nodes=1'])
+        >>> KeyedArgsOption("--slurmPartitionArgs", "x", "PARTITION").parse("quantum")
+        Traceback (most recent call last):
+        ...
+        ValueError: Expected PARTITION=ARGS but got: 'quantum'
+
+        Raises ValueError if not parseable.
+        """
+        key, separator, args = spec.partition("=")
+        if not key or not separator:
+            raise ValueError(f"Expected {self.key_name}=ARGS but got: {spec!r}")
+        return key, shlex.split(args)
+
+    def args_of(self, key: str, config: Config) -> list[str]:
+        """
+        Get the arguments the config gives for the key, or none.
+        """
+        args: dict[str, list[str]] = dict(getattr(config, self.dest, None) or [])
+        return args.get(key, [])
+
+
+class AcceleratorArgsOption(KeyedArgsOption):
     """
     A batch system's option giving, once per accelerator kind as
     ``KIND=ARGS``, the submission arguments that provide that kind.
@@ -49,20 +102,9 @@ class AcceleratorArgsOption:
         :param provided_kinds: The error to give, by kind, for each kind the
             batch system provides by other means.
         """
+        super().__init__(flag, dest, "KIND")
         self.scheduler = scheduler
-        self.flag = flag
-        self.dest = dest
         self.provided_kinds = provided_kinds or {}
-
-    def add_to(self, parser: ArgumentParser | _ArgumentGroup, help: str) -> None:
-        parser.add_argument(
-            self.flag,
-            dest=self.dest,
-            type=self.parse,
-            action="append",
-            default=[],
-            help=help,
-        )
 
     def parse(self, spec: str) -> tuple[str, list[str]]:
         """
@@ -93,12 +135,9 @@ class AcceleratorArgsOption:
 
         Raises ValueError if not parseable.
         """
-        kind, separator, args = spec.partition("=")
-        if not kind or not separator:
-            raise ValueError(f"Expected KIND=ARGS but got: {spec!r}")
+        kind, split = super().parse(spec)
         if kind in self.provided_kinds:
             raise ValueError(self.provided_kinds[kind])
-        split = shlex.split(args)
         for arg in split:
             for _, name, format_spec, conversion in string.Formatter().parse(arg):
                 if name is not None and (

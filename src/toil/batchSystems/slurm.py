@@ -31,7 +31,7 @@ from toil.batchSystems.abstractBatchSystem import (
 from toil.batchSystems.abstractGridEngineBatchSystem import (
     AbstractGridEngineBatchSystem,
 )
-from toil.batchSystems.accelerator_args import AcceleratorArgsOption
+from toil.batchSystems.accelerator_args import AcceleratorArgsOption, KeyedArgsOption
 from toil.batchSystems.allocation import slurm_nodes
 from toil.batchSystems.options import OptionSetter
 from toil.bus import get_job_kind
@@ -135,6 +135,10 @@ SLURM_ACCELERATOR_ARGS = AcceleratorArgsOption(
     "--slurmAcceleratorArgs",
     "slurm_accelerator_args",
     {"gpu": "Use --slurmGPUPartition to choose the partition for gpu accelerators"},
+)
+
+SLURM_PARTITION_ARGS = KeyedArgsOption(
+    "--slurmPartitionArgs", "slurm_partition_args", "PARTITION"
 )
 
 
@@ -1140,6 +1144,26 @@ class SlurmBatchSystem(AbstractGridEngineBatchSystem):
                 # Pick a partition based on time limit
                 partition = self.boss.partitions.get_partition(time_limit)
 
+            if partition is not None:
+                for arg in SLURM_PARTITION_ARGS.args_of(partition, self.boss.config):
+                    if (
+                        is_any_mem_option(arg)
+                        or is_any_cpus_option(arg)
+                        or is_partition_option(arg)
+                        or is_time_option(arg)
+                        or is_qos_option(arg)
+                        or is_export_option(arg)
+                        or is_export_file_option(arg)
+                        or (processes > 1 and is_ntasks_option(arg))
+                    ):
+                        raise ValueError(
+                            f"Cannot use Slurm argument {arg} from "
+                            f"{SLURM_PARTITION_ARGS.flag} for partition "
+                            f"{partition} on job {jobName}, since it sets what "
+                            f"Toil sets or what chose the partition"
+                        )
+                    sbatch_line.append(arg)
+
             if qos is None:
                 # Apply a configured QOS if one wasn't already supplied.
                 gpu_qos_override: str | None = self.boss.config.slurm_gpu_qos  # type: ignore[attr-defined]
@@ -1358,6 +1382,14 @@ class SlurmBatchSystem(AbstractGridEngineBatchSystem):
             "kind not given here, or lacking a property it needs, are refused. "
             "KIND= with no arguments says a job gets the kind wherever it runs.",
         )
+        SLURM_PARTITION_ARGS.add_to(
+            parser,
+            help="sbatch arguments for the Slurm jobs that run in one partition, "
+            "such as --exclusive for a partition shared only whole "
+            "(compute=--exclusive). Give it once per partition. They apply "
+            "once a job's partition is chosen, so they can't set the partition, "
+            "time limit, QOS, exported environment, memory or CPUs.",
+        )
         parser.add_argument(
             "--slurmPE",
             dest="slurm_pe",
@@ -1385,5 +1417,6 @@ class SlurmBatchSystem(AbstractGridEngineBatchSystem):
         setOption("slurm_gpu_partition")
         setOption("slurm_gpu_qos")
         setOption("slurm_accelerator_args")
+        setOption("slurm_partition_args")
         setOption("slurm_pe")
         setOption("slurm_args")

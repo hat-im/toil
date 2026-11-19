@@ -815,6 +815,50 @@ class SlurmTest(ToilTest):
                 1, 100, 5, 0, "job5", None, fpga + [{"kind": "qpu", "count": 1}]
             )
 
+    def test_prepareSbatch_partition_args(self):
+        self.monkeypatch.setattr(toil.batchSystems.slurm, "call_command", call_sinfo)
+        self.worker.boss.partitions = (
+            toil.batchSystems.slurm.SlurmBatchSystem.PartitionSet()
+        )
+        self.worker.boss.config.slurm_partition = "short"
+        self.worker.boss.config.slurm_accelerator_args = [
+            ("fpga", ["--partition=fpgas"])
+        ]
+        self.worker.boss.config.slurm_partition_args = [
+            ("short", ["--exclusive", "--nodes=1"])
+        ]
+        fpga = [{"kind": "fpga", "count": 1}]
+
+        command = self.worker.prepareSbatch(1, 100, 5, 0, "job5", None, None)
+        assert "--partition=short" in command
+        assert {"--exclusive", "--nodes=1"} <= set(command)
+
+        command = self.worker.prepareSbatch(1, 100, 5, 0, "job5", None, fpga)
+        assert "--partition=fpgas" in command
+        assert not {"--exclusive", "--nodes=1"} & set(command)
+
+        for arg in (
+            "--partition=long",
+            "-p",
+            "--time=10",
+            "--qos=high",
+            "--export=ALL",
+            "--export-file=env",
+            "--mem=10G",
+            "--cpus-per-task=4",
+        ):
+            with self.subTest(arg=arg):
+                self.worker.boss.config.slurm_partition_args = [("short", [arg])]
+                with self.assertRaises(ValueError):
+                    self.worker.prepareSbatch(1, 100, 5, 0, "job5", None, None)
+
+        self.worker.boss.config.slurm_partition_args = [("short", ["--ntasks=2"])]
+        assert "--ntasks=2" in self.worker.prepareSbatch(
+            1, 100, 5, 0, "job5", None, None
+        )
+        with self.assertRaises(ValueError):
+            self.worker.prepareSbatch(2, 100, 5, 0, "job5", None, None, 2)
+
     def test_prepareSbatch_accelerator_args(self):
         self.monkeypatch.setattr(toil.batchSystems.slurm, "call_command", call_sinfo)
         ps = toil.batchSystems.slurm.SlurmBatchSystem.PartitionSet()
