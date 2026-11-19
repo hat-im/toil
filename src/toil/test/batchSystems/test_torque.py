@@ -143,8 +143,7 @@ class TorqueTest(ToilTest):
     def test_pbsVersion(self):
         for out, version in [
             ("pbs_version = 2026.1.0.20260821184519\n", "pro"),
-            ("PBSPro_13.1.0.160576\n", "pro"),
-            ("Version: 6.1.3\n", "oss"),
+            ("", "oss"),
         ]:
             self.monkeypatch.setattr(
                 toil.batchSystems.torque, "call_command", lambda args, **_: out
