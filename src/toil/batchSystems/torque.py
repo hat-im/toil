@@ -14,6 +14,7 @@
 import logging
 import math
 import os
+import re
 import shlex
 import tempfile
 from argparse import ArgumentParser, _ArgumentGroup
@@ -54,6 +55,24 @@ def refuse_toil_resources(args: str, processes: int = 1, walltime: int = 0) -> N
         raise ValueError(
             f"Incompatible resource arguments ({', '.join(map(repr, toil_resources))}): {args}"
         )
+
+
+def pbs_job_name(jobID: int, jobName: str) -> str:
+    """
+    Name a job as Slurm's batch system does, toil_job_<ID>_<name>, in what
+    every PBS accepts for -N: OpenPBS's check_job_name takes at most 230
+    characters, each a letter, a digit or one of -_+. (src/lib/Libcmds/
+    ck_job_name.c, PBS_MAXJOBNAME in src/include/pbs_ifl.h), and Torque any
+    printable ones up to 256 (src/lib/Libcmds/ck_job_name.c).
+
+    >>> pbs_job_name(5, "CWLJob")
+    'toil_job_5_CWLJob'
+    >>> pbs_job_name(5, "Unknown Job/step:1")
+    'toil_job_5_Unknown_Job_step_1'
+    >>> len(pbs_job_name(5, "x" * 300))
+    230
+    """
+    return re.sub(r"[^A-Za-z0-9_+.-]", "_", f"toil_job_{jobID}_{jobName}")[:230]
 
 
 class TorqueBatchSystem(AbstractGridEngineBatchSystem):
@@ -162,11 +181,18 @@ class TorqueBatchSystem(AbstractGridEngineBatchSystem):
             processes: int = 1,
         ) -> list[str]:
             return self.prepareQsub(
-                cpu, memory, jobID, job_environment, accelerators, processes, walltime
+                cpu,
+                memory,
+                jobID,
+                jobName,
+                job_environment,
+                accelerators,
+                processes,
+                walltime,
             ) + [self.generateTorqueWrapper(command, jobID)]
 
         def submitJob(self, subLine: list[str]) -> str:
-            return call_command(subLine)
+            return call_command(subLine).strip()
 
         def getJobExitCode(self, torqueJobID: str) -> int | None:
             if self._version == "pro":
@@ -207,6 +233,7 @@ class TorqueBatchSystem(AbstractGridEngineBatchSystem):
             cpu: float,
             mem: int,
             jobID: int,
+            jobName: str,
             job_environment: dict[str, str] | None,
             accelerators: list[AcceleratorRequirement] | None = None,
             processes: int = 1,
@@ -224,7 +251,14 @@ class TorqueBatchSystem(AbstractGridEngineBatchSystem):
             # TODO: passing $PWD on command line not working for -d, resorting to
             # $PBS_O_WORKDIR but maybe should fix this here instead of in script?
 
-            qsubline = ["qsub", "-S", "/bin/sh", "-V", "-N", f"toil_job_{jobID}"]
+            qsubline = [
+                "qsub",
+                "-S",
+                "/bin/sh",
+                "-V",
+                "-N",
+                pbs_job_name(jobID, jobName),
+            ]
 
             environment = self.boss.environment.copy()
             if job_environment:

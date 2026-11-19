@@ -72,25 +72,25 @@ class TorqueTest(ToilTest):
         qpu = [{"kind": "qpu", "count": 1, "properties": {"backend": "sim"}}]
 
         # A job's accelerator reaches its qsub with the arguments its kind is mapped to
-        command = self.worker.prepareQsub(1, 1024, 5, None, qpu)
+        command = self.worker.prepareQsub(1, 1024, 5, "job5", None, qpu)
         assert command[-4:] == ["-q", "quantum", "-l", "qpu=sim"]
 
         # Jobs without that accelerator don't get them
-        command = self.worker.prepareQsub(1, 1024, 5, None, None)
+        command = self.worker.prepareQsub(1, 1024, 5, "job5", None, None)
         assert "quantum" not in command
 
         # A kind a job starts itself needs no arguments
         self.worker.boss.config.torque_accelerator_args = [
             toil.batchSystems.torque.TORQUE_ACCELERATOR_ARGS.parse("qpu=")
         ]
-        assert self.worker.prepareQsub(1, 1024, 5, None, qpu) == self.worker.prepareQsub(
-            1, 1024, 5, None, None
+        assert self.worker.prepareQsub(1, 1024, 5, "job5", None, qpu) == self.worker.prepareQsub(
+            1, 1024, 5, "job5", None, None
         )
 
         # Resources Toil sets itself can't be given for an accelerator
         self.worker.boss.config.torque_accelerator_args = [("qpu", ["-l", "mem=10G"])]
         with self.assertRaises(ValueError):
-            self.worker.prepareQsub(1, 1024, 5, None, qpu)
+            self.worker.prepareQsub(1, 1024, 5, "job5", None, qpu)
 
     def test_prepareSubmission_accelerator_args(self):
         self.worker.boss.config.torque_accelerator_args = [("fpga", ["-q", "fpgas"])]
@@ -101,16 +101,16 @@ class TorqueTest(ToilTest):
 
     def test_prepareQsub_processes(self):
         self.worker._version = "pro"
-        command = self.worker.prepareQsub(4, 4 * 2**30, 5, None)
+        command = self.worker.prepareQsub(4, 4 * 2**30, 5, "job5", None)
         assert command[command.index("-l") + 1] == "select=1:mem=4194304K:ncpus=4"
 
-        command = self.worker.prepareQsub(96, 96 * 2**30, 5, None, None, 2)
+        command = self.worker.prepareQsub(96, 96 * 2**30, 5, "job5", None, None, 2)
         assert (
             command[command.index("-l") + 1]
             == "select=2:ncpus=48:mpiprocs=1:mem=50331648K"
         )
 
-        command = self.worker.prepareQsub(1, 2**30, 5, None, None, 3)
+        command = self.worker.prepareQsub(1, 2**30, 5, "job5", None, None, 3)
         assert (
             command[command.index("-l") + 1]
             == "select=3:ncpus=1:mpiprocs=1:mem=349526K"
@@ -146,6 +146,20 @@ class TorqueTest(ToilTest):
         command = self.worker.prepareSubmission(1, 2**30, 0, 90000, 5, "true", "job5")
         assert command[command.index("-l") + 1] == "mem=1048576K,walltime=25:00:00"
 
+    def test_prepareSubmission_names_the_job_by_its_id_and_kind(self):
+        command = self.worker.prepareSubmission(
+            1, 2**30, 0, 0, 5, "true", "Unknown Job/step"
+        )
+        assert command[command.index("-N") + 1] == "toil_job_5_Unknown_Job_step"
+
+    def test_submitJob_gives_the_bare_job_id(self):
+        self.monkeypatch.setattr(
+            toil.batchSystems.torque,
+            "call_command",
+            lambda args, **_: "1234.pbs-server\n",
+        )
+        assert self.worker.submitJob(["qsub", "job.sh"]) == "1234.pbs-server"
+
     def test_prepareSubmission_processes(self):
         self.worker._version = "pro"
         command = self.worker.prepareSubmission(
@@ -160,14 +174,14 @@ class TorqueTest(ToilTest):
                 with self.subTest(variable=variable, args=args):
                     self.monkeypatch.setenv(variable, args)
                     with self.assertRaisesRegex(ValueError, "Incompatible"):
-                        self.worker.prepareQsub(2, 2**30, 5, None, None, 2)
+                        self.worker.prepareQsub(2, 2**30, 5, "job5", None, None, 2)
                     self.monkeypatch.delenv(variable)
 
         self.monkeypatch.setenv("TOIL_TORQUE_ARGS", "-l select=2")
         with self.assertRaisesRegex(ValueError, "Incompatible"):
-            self.worker.prepareQsub(2, 2**30, 5, None)
+            self.worker.prepareQsub(2, 2**30, 5, "job5", None)
         self.monkeypatch.setenv("TOIL_TORQUE_ARGS", "-l place=excl")
-        command = self.worker.prepareQsub(2, 2**30, 5, None)
+        command = self.worker.prepareQsub(2, 2**30, 5, "job5", None)
         assert command[-2:] == ["-l", "place=excl"]
 
     def test_pbsVersion(self):
@@ -182,10 +196,10 @@ class TorqueTest(ToilTest):
 
     def test_prepareQsub_oss_processes(self):
         self.worker._version = "oss"
-        command = self.worker.prepareQsub(2, 2**30, 5, None)
+        command = self.worker.prepareQsub(2, 2**30, 5, "job5", None)
         assert command[command.index("-l") + 1] == "mem=1048576K,nodes=1:ppn=2"
         with self.assertRaisesRegex(ValueError, "OSS Torque"):
-            self.worker.prepareQsub(2, 2**30, 5, None, None, 2)
+            self.worker.prepareQsub(2, 2**30, 5, "job5", None, None, 2)
 
     def test_process_placement_variables(self):
         assert toil.batchSystems.torque.TorqueBatchSystem.process_placement_variables() == [
