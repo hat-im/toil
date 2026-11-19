@@ -126,6 +126,21 @@ class TorqueTest(ToilTest):
         command = self.worker.prepareSubmission(1, 2**30, 0, 0, 5, "true", "job5")
         assert command[command.index("-l") + 1] == "select=1:mem=1048576K"
 
+    def test_prepareSubmission_walltime_args(self):
+        self.worker._version = "pro"
+        for variable in ("TOIL_TORQUE_REQS", "TOIL_TORQUE_ARGS"):
+            with self.subTest(variable=variable):
+                self.monkeypatch.setenv(variable, "-l walltime=2:00:00")
+                with self.assertRaisesRegex(ValueError, "Incompatible"):
+                    self.worker.prepareSubmission(
+                        1, 2**30, 0, 60, 5, "true", "job5"
+                    )
+                command = self.worker.prepareSubmission(
+                    1, 2**30, 0, 0, 5, "true", "job5"
+                )
+                assert "walltime=2:00:00" in " ".join(command)
+                self.monkeypatch.delenv(variable)
+
     def test_prepareSubmission_oss_walltime(self):
         self.worker._version = "oss"
         command = self.worker.prepareSubmission(1, 2**30, 0, 90000, 5, "true", "job5")

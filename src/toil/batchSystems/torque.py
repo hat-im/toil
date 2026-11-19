@@ -39,14 +39,17 @@ TORQUE_ACCELERATOR_ARGS = AcceleratorArgsOption(
 )
 
 
-def refuse_toil_resources(args: str, processes: int = 1) -> None:
+def refuse_toil_resources(args: str, processes: int = 1, walltime: int = 0) -> None:
     """
     Raise ValueError if the qsub arguments set resources Toil sets itself,
-    including the placement of a job of more than one process.
+    including the placement of a job of more than one process and the
+    walltime of a job that has one.
     """
     toil_resources = ["mem=", "nodes=", "ppn=", "select="]
     if processes > 1:
         toil_resources.append("place=")
+    if walltime:
+        toil_resources.append("walltime=")
     if any(resource in args for resource in toil_resources):
         raise ValueError(
             f"Incompatible resource arguments ({', '.join(map(repr, toil_resources))}): {args}"
@@ -275,7 +278,7 @@ class TorqueBatchSystem(AbstractGridEngineBatchSystem):
                     "TOIL_TORQUE_REQS env. variable: %s",
                     reqlineEnv,
                 )
-                refuse_toil_resources(reqlineEnv, processes)
+                refuse_toil_resources(reqlineEnv, processes, walltime)
 
                 reqline.append(reqlineEnv)
 
@@ -291,13 +294,13 @@ class TorqueBatchSystem(AbstractGridEngineBatchSystem):
                     "Native Torque options appended to qsub from TOIL_TORQUE_ARGS env. variable: %s",
                     arglineEnv,
                 )
-                refuse_toil_resources(arglineEnv, processes)
+                refuse_toil_resources(arglineEnv, processes, walltime)
                 qsubline += shlex.split(arglineEnv)
 
             accelerator_args = TORQUE_ACCELERATOR_ARGS.args_for(
                 accelerators or [], self.boss.config
             )
-            refuse_toil_resources(shlex.join(accelerator_args), processes)
+            refuse_toil_resources(shlex.join(accelerator_args), processes, walltime)
             qsubline += accelerator_args
 
             return qsubline
