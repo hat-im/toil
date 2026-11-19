@@ -116,6 +116,21 @@ class TorqueTest(ToilTest):
             == "select=3:ncpus=1:mpiprocs=1:mem=349526K"
         )
 
+    def test_prepareSubmission_walltime(self):
+        self.worker._version = "pro"
+        command = self.worker.prepareSubmission(1, 2**30, 0, 3725, 5, "true", "job5")
+        assert (
+            command[command.index("-l") + 1] == "select=1:mem=1048576K,walltime=1:02:05"
+        )
+
+        command = self.worker.prepareSubmission(1, 2**30, 0, 0, 5, "true", "job5")
+        assert command[command.index("-l") + 1] == "select=1:mem=1048576K"
+
+    def test_prepareSubmission_oss_walltime(self):
+        self.worker._version = "oss"
+        command = self.worker.prepareSubmission(1, 2**30, 0, 90000, 5, "true", "job5")
+        assert command[command.index("-l") + 1] == "mem=1048576K,walltime=25:00:00"
+
     def test_prepareSubmission_processes(self):
         self.worker._version = "pro"
         command = self.worker.prepareSubmission(

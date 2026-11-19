@@ -159,7 +159,7 @@ class TorqueBatchSystem(AbstractGridEngineBatchSystem):
             processes: int = 1,
         ) -> list[str]:
             return self.prepareQsub(
-                cpu, memory, jobID, job_environment, accelerators, processes
+                cpu, memory, jobID, job_environment, accelerators, processes, walltime
             ) + [self.generateTorqueWrapper(command, jobID)]
 
         def submitJob(self, subLine: list[str]) -> str:
@@ -207,6 +207,7 @@ class TorqueBatchSystem(AbstractGridEngineBatchSystem):
             job_environment: dict[str, str] | None,
             accelerators: list[AcceleratorRequirement] | None = None,
             processes: int = 1,
+            walltime: int = 0,
         ) -> list[str]:
             """
             Returns the qsub command line to run to queue the job, without its
@@ -260,6 +261,11 @@ class TorqueBatchSystem(AbstractGridEngineBatchSystem):
                     reqline.append(f"mem={mem//1024}K")
                 if cpu is not None and math.ceil(cpu) > 1:
                     reqline.append("nodes=1:ppn=" + str(int(math.ceil(cpu))))
+
+            if walltime:
+                minutes, seconds = divmod(math.ceil(walltime), 60)
+                hours, minutes = divmod(minutes, 60)
+                reqline.append(f"walltime={hours}:{minutes:02d}:{seconds:02d}")
 
             # Other resource requirements can be passed through the environment (see man qsub)
             reqlineEnv = os.getenv("TOIL_TORQUE_REQS")
