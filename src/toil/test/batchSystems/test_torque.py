@@ -140,6 +140,17 @@ class TorqueTest(ToilTest):
         command = self.worker.prepareQsub(2, 2**30, 5, None)
         assert command[-2:] == ["-l", "place=excl"]
 
+    def test_pbsVersion(self):
+        for out, version in [
+            ("pbs_version = 2026.1.0.20260821184519\n", "pro"),
+            ("PBSPro_13.1.0.160576\n", "pro"),
+            ("Version: 6.1.3\n", "oss"),
+        ]:
+            self.monkeypatch.setattr(
+                toil.batchSystems.torque, "call_command", lambda args, **_: out
+            )
+            assert self.worker._pbsVersion() == version, out
+
     def test_prepareQsub_oss_processes(self):
         self.worker._version = "oss"
         command = self.worker.prepareQsub(2, 2**30, 5, None)
