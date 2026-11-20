@@ -57,6 +57,7 @@ from typing import (
     Any,
     Generic,
     Literal,
+    NamedTuple,
     Optional,
     Protocol,
     TextIO,
@@ -137,6 +138,8 @@ from toil.common import (
     InconsistentConfigurationError,
 )
 from toil.cwl import check_cwltool_version
+from toil import job_telemetry
+from toil.lib import telemetry
 from toil.lib.directory import DirectoryContents, decode_directory, encode_directory
 from toil.lib.interpreter import (
     INJECTED_MESSAGE_DIR,
@@ -2870,6 +2873,34 @@ def toilStageFiles(
 ###
 
 
+class StepPlace(NamedTuple):
+    """
+    A job's step path from the root workflow, 0-based scatter index in
+    cwltool's order, and innermost loop iteration, for telemetry.
+    """
+
+    path: tuple[str, ...] = ()
+    scatter_index: int | None = None
+    loop_iteration: int | None = None
+
+    def attributes(self) -> dict[str, str | int]:
+
+        attributes: dict[str, str | int] = {"step.id": "/".join(self.path)}
+        if self.scatter_index is not None:
+            attributes["step.scatter.index"] = self.scatter_index
+        if self.loop_iteration is not None:
+            attributes["step.loop.iteration"] = self.loop_iteration
+        return attributes
+
+
+def place_job(job: Job, place: StepPlace) -> None:
+    """Set the place of a job made for a CWL step."""
+    if isinstance(job, (CWLNamedJob, CWLScatter, CWLLoop)):
+        job.step_place = place
+    if isinstance(job, CWLJob):
+        job.description.telemetry_attributes = dict(place.attributes())
+
+
 class CWLNamedJob(Job):
     """
     Base class for all CWL jobs that do user work, to give them useful names.
@@ -2919,6 +2950,8 @@ class CWLNamedJob(Job):
         # Dotted hierarchical name used both as the unit name and as
         # file hints for writes to the job store.
         self.task_path = ".".join(name_parts)
+
+        self.step_place = StepPlace()
 
         # Display as that along with the class
         display_name = f"{class_name} {self.task_path}"
@@ -3006,6 +3039,7 @@ class CWLJobWrapper(CWLNamedJob):
             runtime_context=self.runtime_context,
             parent_name=self.parent_name,
         )
+        place_job(realjob, self.step_place)
         self.addChild(realjob)
         return realjob.rv()
 
@@ -3281,7 +3315,13 @@ class CWLJob(CWLNamedJob):
         runtime_context = self.runtime_context.copy()
 
         runtime_context.basedir = os.getcwd()
-        runtime_context.preserve_environment = required_env_vars
+        runtime_context.preserve_environment = list(required_env_vars)
+        if job_telemetry.worker() is not None:
+            runtime_context.preserve_environment += [
+                name
+                for name in telemetry.TRACE_CONTEXT_VARIABLES.values()
+                if name in os.environ
+            ]
         if self.processes > 1:
             runtime_context.mpi_config = pass_placement_variables(
                 runtime_context.mpi_config,
@@ -3668,6 +3708,14 @@ class CWLScatter(Job):
         self.runtime_context = runtime_context
         self.conditional = conditional
         self.parent_name = parent_name
+        self.step_place = StepPlace()
+        self._scattered = 0
+
+    def _add_scattered(self, subjob: Job) -> None:
+        """Add the next scattered job as a child."""
+        place_job(subjob, self.step_place._replace(scatter_index=self._scattered))
+        self._scattered += 1
+        self.addChild(subjob)
 
     def flat_crossproduct_scatter(
         self,
@@ -3692,7 +3740,7 @@ class CWLScatter(Job):
                     parent_name=f"{self.parent_name}.{n}",
                     conditional=self.conditional,
                 )
-                self.addChild(subjob)
+                self._add_scattered(subjob)
                 outputs.append(followOn.rv())
             else:
                 self.flat_crossproduct_scatter(
@@ -3722,7 +3770,7 @@ class CWLScatter(Job):
                     parent_name=f"{self.parent_name}.{n}",
                     conditional=self.conditional,
                 )
-                self.addChild(subjob)
+                self._add_scattered(subjob)
                 outputs.append(followOn.rv())
             else:
                 outputs.append(
@@ -3789,7 +3837,7 @@ class CWLScatter(Job):
                     parent_name=f"{self.parent_name}.{i}",
                     conditional=self.conditional,
                 )
-                self.addChild(subjob)
+                self._add_scattered(subjob)
                 outputs.append(follow_on.rv())
         elif scatterMethod == "nested_crossproduct":
             outputs = self.nested_crossproduct_scatter(cwljob, scatter, postScatterEval)
@@ -3964,6 +4012,7 @@ class CWLLoop(Job):
         self.cwljob = cwljob
         self.runtime_context = runtime_context
         self.parent_name = parent_name
+        self.step_place = StepPlace()
         self.iteration_limit = iteration_limit
         self.iteration = iteration
         self.previous_outputs = previous_outputs
@@ -4145,6 +4194,7 @@ class CWLLoop(Job):
             parent_name=f"{self.parent_name}.iteration{self.iteration}",
             conditional=None,
         )
+        place_job(body_job, self.step_place._replace(loop_iteration=self.iteration))
 
         self.addChild(body_job)
 
@@ -4207,6 +4257,7 @@ class CWLLoop(Job):
             previous_outputs=body_followon.rv(),
             previous_accumulation=next_accumulation,
         )
+        place_job(next_loop, self.step_place)
 
         # Attach next loop to its predecessor, which depends on the output method
         next_loop_pred.addFollowOn(next_loop)
@@ -4446,6 +4497,13 @@ class CWLWorkflow(CWLNamedJob):
                                 followOn,
                             )
 
+                        place_job(
+                            wfjob,
+                            StepPlace(
+                                self.step_place.path + (shortname(step_id),),
+                                loop_iteration=self.step_place.loop_iteration,
+                            ),
+                        )
                         jobs[step_id] = followOn
 
                         connected = False
@@ -5462,6 +5520,9 @@ def main(args: list[str] | None = None, stdout: TextIO = sys.stdout) -> int:
             options.cwltool, trs_spec = resolve_workflow(options.cwltool)
             # Figure out what to call the workflow
             workflow_name = trs_spec or options.cwltool
+            job_telemetry.workflow_attributes.update(
+                {"workflow.uri": options.cwltool, "workflow.name": workflow_name}
+            )
 
             # TODO: why are we doing this? Does this get applied to all
             # tools as a default or something?
